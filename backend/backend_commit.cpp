@@ -16,9 +16,62 @@ bool Backend::dispatchInstruction([[maybe_unused]] const Instruction &inst) {
     // TODO: Check rob and reservation station is available for push.
     // NOTE: use getFUType to get instruction's target FU
     // NOTE: FUType::NONE only goes into ROB but not Reservation Stations
-    Logger::Error("Instruction dispatch not implemented!");
-    std::__throw_runtime_error("Instruction dispatch not implemented!");
+    FUType futype = getFUType(inst);
+    switch (futype) {
+    case FUType::ALU:
+        if (rsALU.hasEmptySlot()) {
+            unsigned robIdx = rob.push(inst, false);
+            rsALU.insertInstruction(inst, robIdx, regFile, rob);
+            regFile->markBusy(inst.getRd(), robIdx);
+            return true;
+        }
+        break;
 
+    case FUType::BRU:
+        if (rsBRU.hasEmptySlot()) {
+            unsigned robIdx = rob.push(inst, false);
+            rsBRU.insertInstruction(inst, robIdx, regFile, rob);
+            regFile->markBusy(inst.getRd(), robIdx);
+            return true;
+        }
+        break;
+
+    case FUType::DIV:
+        if (rsDIV.hasEmptySlot()) {
+            unsigned robIdx = rob.push(inst, false);
+            rsDIV.insertInstruction(inst, robIdx, regFile, rob);
+            regFile->markBusy(inst.getRd(), robIdx);
+            return true;
+        }
+        break;
+
+    case FUType::MUL:
+        if (rsMUL.hasEmptySlot()) {
+            unsigned robIdx = rob.push(inst, false);
+            rsMUL.insertInstruction(inst, robIdx, regFile, rob);
+            regFile->markBusy(inst.getRd(), robIdx);
+            return true;
+        }
+        break;
+
+    case FUType::LSU:
+        if (rsLSU.hasEmptySlot()) {
+            unsigned robIdx = rob.push(inst, false);
+            rsLSU.insertInstruction(inst, robIdx, regFile, rob);
+            regFile->markBusy(inst.getRd(), robIdx);
+            return true;
+        }
+        break;
+
+    case FUType::NONE:
+        // NOTE: 不确定这里是否是true
+        rob.push(inst, true);
+        return true;
+
+    default:
+        Logger::Error("never reached in dispatchInstruction!");
+        break;
+    }
     return false;
 }
 
@@ -64,8 +117,63 @@ bool Backend::commitInstruction([[maybe_unused]] const ROBEntry &entry,
 
     // Optional TODO: Update your BTB when necessary
 
-    Logger::Error("Committing area in backend.cpp is not implemented!");
-    std::__throw_runtime_error(
-        "Committing area in backend.cpp is not implemented!");
+    if (entry.inst == RV32I::SB || entry.inst == RV32I::SH ||
+        entry.inst == RV32I::SW) {
+        StoreBufferSlot stSlot = storeBuffer.front();
+        bool status =
+            writeMemoryHierarchy(stSlot.storeAddress, stSlot.storeData, 0xF);
+        if (!status) {
+            return false;  // NOTE: 这里如果写未完成，不会弹出
+        } else {
+            storeBuffer.pop();
+            rob.pop();
+        }
+    } else if (entry.inst == RV32I::LB || entry.inst == RV32I::LH ||
+               entry.inst == RV32I::LW || entry.inst == RV32I::LBU ||
+               entry.inst == RV32I::LHU) {
+        LoadBufferSlot ldSlot = loadBuffer.pop(rob.getPopPtr());
+        if (!ldSlot.invalidate) {
+            regFile->write(
+                entry.inst.getRd(), entry.state.result, rob.getPopPtr());
+            rob.pop();
+        } else {
+            frontend.jump(entry.inst.pc);
+            flush();
+        }
+    }
+    // NOTE: 这里要考虑到jal和jalr, 且需要注意它们涉及到寄存器的操作
+    else if (entry.inst == RV32I::BEQ || entry.inst == RV32I::BGE ||
+             entry.inst == RV32I::BGEU || entry.inst == RV32I::BLT ||
+             entry.inst == RV32I::BLTU || entry.inst == RV32I::BNE ||
+             entry.inst == RV32I::JAL || entry.inst == RV32I::JALR) {
+        BpuUpdateData bpuUpdateData{};
+        bpuUpdateData.pc = entry.inst.pc;
+        bpuUpdateData.branchTaken = entry.state.actualTaken;
+        bpuUpdateData.jumpTarget = entry.state.jumpTarget;
+        frontend.bpuBackendUpdate(bpuUpdateData);
+        if ((entry.inst == RV32I::JAL || entry.inst == RV32I::JALR) &&
+            entry.inst.getRd() != 0) {
+            regFile->write(
+                entry.inst.getRd(), entry.state.result, rob.getPopPtr());
+        }
+        if (entry.state.mispredict) {
+            // NOTE: 此处的actual表示正确的情况是应不应该，而不是表示现实的情况
+            unsigned int jmpAddr = entry.state.actualTaken
+                                       ? entry.state.jumpTarget
+                                       : entry.inst.pc + 4;
+            frontend.jump(jmpAddr);
+            flush();
+        } else
+            rob.pop();
+    } else if (entry.inst == EXTRA::EXIT) {
+        rob.pop();
+        return true;
+    } else {
+        if (entry.inst.getRd() != 0) {
+            regFile->write(
+                entry.inst.getRd(), entry.state.result, rob.getPopPtr());
+        }
+        rob.pop();
+    }
     return false;
 }
