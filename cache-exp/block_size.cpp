@@ -8,6 +8,29 @@ unsigned MeasureCacheBlockSize([[maybe_unused]] ProcessorAbstract *p) {
     // The size will be ranged from 4 bytes to 32 bytes,
     // and must be a power of 2
     // Return the accurate value
+    unsigned testSize[5] = {4, 8, 16, 32, 64};
+    unsigned testTime[5];
 
-    return 4;
+    for (int i = 0; i < 5; i++) {
+        testTime[i] = execute(p, "./test/sample_block_size", 1, testSize[i]);
+    }
+    for (int i = 0; i < 5; i++) {
+        Logger::Warn(
+            "With test block size = %u, program simulator ran %u cycles.",
+            testSize[i],
+            testTime[i]);
+    }
+    int mx = -1;
+    int idx = 0;
+
+    for (int i = 0; i < 4; i++) {
+        int delta = ((int) testTime[i + 1]) - ((int) testTime[i]);
+        if (delta > mx) {
+            mx = delta;
+            idx = i;
+        }
+    }
+
+    return testSize[idx];
+
 }

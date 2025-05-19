@@ -7,29 +7,17 @@ before_script:
   - mkdir build && cp tomasulo-simulator-testcases/check_predict.sh build/check_predict.sh && cp tomasulo-simulator-testcases/check_tomasulo.sh build/check_tomasulo.sh
   - cp -r tomasulo-simulator-testcases/checkfiles ./checkfiles
   - cd build && cmake -DJUDGE_ONLINE:STRING=true ..
-  - riscv64-unknown-elf-gcc -v
   - make
 
 after_script:
   - cd ~/ && rm -rf build
 
 stages:
-  - tomasulo
+  - cache
 
 job 1:
-  stage: tomasulo
+  stage: cache
   script:
-    - bash check_tomasulo.sh
-    - bash check_predict.sh
+    - ./cache_checker -f ../checkfiles/cache_spec.chk
   tags:
     - 2025-alpha
-  artifacts:
-    name: "$CI_JOB_NAME-$CI_COMMIT_REF_NAME"
-    when: always
-    paths:
-      - build/test/*
-    exclude:
-      - build/test/CMakeFiles/*
-      - build/test/*.cmake
-      - build/test/Makefile
-    expire_in: 1 day
